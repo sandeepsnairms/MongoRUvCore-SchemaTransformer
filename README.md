@@ -28,14 +28,24 @@ Before running the assessment, ensure that the client machine meets the followin
 
     ```json
     {
-       
+        "sections": [
+            {
+                "include": [
+                    "*"
+                ],
+                "exclude": [],
+                "unsharded": "false",
+                "drop_if_exists": "true",
+                "optimize_compound_indexes": "true"
+            }
+        ]
     }
     ```
 
 4. Run the following command, providing the full path of the JSON file created in the previous step:
 
     ```cmd
-    python schema_transformer.py --config /path/to/config.json
+    python main.py
     ```
 
 This process will generate a vCore-optimized schema with index and sharding recommendations based on your workload.
