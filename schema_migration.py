@@ -48,12 +48,13 @@ class SchemaMigration:
                 dest_db.create_collection(collection_name)
 
             # Check if shard key should be created
-            if not collection_config.unsharded:
+            if collection_config.migrate_shard_key:
                 source_shard_key = self.get_shard_key_ru(source_db, collection_config)
-                dest_client.admin.command(
-                    "shardCollection",
-                    f"{db_name}.{collection_name}",
-                    key=source_shard_key)
+                if (source_shard_key is not None):
+                    dest_client.admin.command(
+                        "shardCollection",
+                        f"{db_name}.{collection_name}",
+                        key=source_shard_key)
 
             # Migrate indexes
             index_list = []
@@ -82,7 +83,11 @@ class SchemaMigration:
         get_collection_command = {}
         get_collection_command['customAction'] = 'GetCollection'
         get_collection_command['collection'] = collection_config.collection_name
-        return source_db.command(get_collection_command)['shardKeyDefinition']
+
+        cosmos_collection = source_db.command(get_collection_command)
+        if 'shardKeyDefinition' not in cosmos_collection:
+            return None
+        return cosmos_collection['shardKeyDefinition']
 
     def is_ts_ttl_index(self, index_keys, index_options):
         """

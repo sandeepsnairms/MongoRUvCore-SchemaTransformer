@@ -1,3 +1,4 @@
+import argparse
 import json
 from pymongo import MongoClient
 from schema_migration import SchemaMigration
@@ -21,7 +22,7 @@ def parse_json(config, client):
 
         collections_to_migrate = include_collection_set.difference(exclude_collection_set)
 
-        unsharded = section.get("unsharded", "false").lower() == "true"
+        migrate_shard_key = section.get("migrate_shard_key", "false").lower() == "true"
         drop_if_exists = section.get("drop_if_exists", "false").lower() == "true"
         optimize_compound_indexes = section.get("optimize_compound_indexes", "false").lower() == "true"
 
@@ -33,7 +34,7 @@ def parse_json(config, client):
             collection_config = CollectionConfig(
                 db_name=db_name,
                 collection_name=collection_name,
-                unsharded=unsharded,
+                migrate_shard_key=migrate_shard_key,
                 drop_if_exists=drop_if_exists,
                 optimize_compound_indexes=optimize_compound_indexes
             )
@@ -72,9 +73,15 @@ def get_collections(collection_list, client):
 
 if __name__ == "__main__":
     # Take user input for URIs and configuration JSON file
-    source_uri = input("Enter the source MongoDB URI: ")
-    dest_uri = input("Enter the destination MongoDB URI: ")
-    config_file_path = input("Enter the path to the configuration JSON file: ")
+    parser = argparse.ArgumentParser(description="MongoDB Schema Transformer")
+    parser.add_argument("--source-uri", required=True, help="Source MongoDB URI")
+    parser.add_argument("--dest-uri", required=True, help="Destination MongoDB URI")
+    parser.add_argument("--config-file", required=True, help="Path to the configuration JSON file")
+    args = parser.parse_args()
+
+    source_uri = args.source_uri
+    dest_uri = args.dest_uri
+    config_file_path = args.config_file
 
     # Connect to the source and destination MongoDB instances
     source_client = MongoClient(source_uri)

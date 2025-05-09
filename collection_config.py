@@ -8,6 +8,6 @@ class CollectionConfig:
     """
     db_name: str
     collection_name: str
-    unsharded: bool
+    migrate_shard_key: bool
     drop_if_exists: bool
     optimize_compound_indexes: bool = False
