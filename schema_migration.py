@@ -1,5 +1,6 @@
-from typing import List
+from typing import List, Tuple
 from pymongo import MongoClient
+from pymongo.database import Database
 from collection_config import CollectionConfig
 
 class SchemaMigration:
@@ -12,11 +13,11 @@ class SchemaMigration:
     indexes are replicated as needed.
 
     Methods:
-        migrate_indexes(source_client, dest_client, collection_configs):
+        migrate_schema(source_client, dest_client, collection_configs):
             Migrates indexes and shard keys from source to destination collections.
     """
 
-    def migrate_indexes(
+    def migrate_schema(
             self,
             source_client: MongoClient,
             dest_client: MongoClient,
@@ -49,7 +50,7 @@ class SchemaMigration:
 
             # Check if shard key should be created
             if collection_config.migrate_shard_key:
-                source_shard_key = self.get_shard_key_ru(source_db, collection_config)
+                source_shard_key = self._get_shard_key_ru(source_db, collection_config)
                 if (source_shard_key is not None):
                     dest_client.admin.command(
                         "shardCollection",
@@ -68,11 +69,11 @@ class SchemaMigration:
             # TODO: Optimize compound indexes
 
             for index_keys, index_options in index_list:
-                if self.is_ts_ttl_index(index_keys, index_options):
+                if self._is_ts_ttl_index(index_keys, index_options):
                     raise ValueError(f"Cannot migrate TTL index on _ts field for collection {collection_name}.")
                 dest_collection.create_index(index_keys, **index_options)
 
-    def get_shard_key_ru(self, source_db, collection_config):
+    def _get_shard_key_ru(self, source_db: Database, collection_config: CollectionConfig):
         """
         Retrieve the shard key definition for a given collection.
 
@@ -89,7 +90,7 @@ class SchemaMigration:
             return None
         return cosmos_collection['shardKeyDefinition']
 
-    def is_ts_ttl_index(self, index_keys, index_options):
+    def _is_ts_ttl_index(self, index_keys: List[Tuple], index_options: dict) -> bool:
         """
         Check if the given index is a TTL (Time-To-Live) index on _ts field.
 
