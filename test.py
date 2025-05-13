@@ -45,6 +45,136 @@ class TestSchemaMigration(unittest.TestCase):
         self.source_client.drop_database(self.db_name)
         self.dest_client.drop_database(self.db_name)
 
+    def test_optimize_compound_indexes_true(self):
+        """
+        Test that the migrate_schema method optimizes compound indexes.
+        """
+        # Create the source collection and index information
+        source_collection = self.source_client[self.db_name]["test_optimize"]
+        source_collection.create_index([("a", 1), ("b", 1), ("c", 1), ("d", 1)])
+        source_collection.create_index([("a", 1), ("b", 1), ("c", 1)])
+        source_collection.create_index([("b", 1), ("c", 1)])
+        source_collection.create_index([("c", 1), ("d", 1)])
+        source_collection.create_index([("b", 1), ("d", 1)])
+        source_collection.create_index([("d", 1)])
+
+        collection_config_sections = []
+        collection_config_sections.append(CollectionConfigSection([f'{self.db_name}.*'], [], False, False, True))
+        migrate_all_config = json.loads(self._generate_config(collection_config_sections))
+        collection_configs = JsonParser(migrate_all_config, self.source_client).parse_json()
+
+        # Create a SchemaMigration instance and call migrate_schema
+        schema_migration = SchemaMigration()
+        schema_migration.migrate_schema(self.source_client, self.dest_client, collection_configs)
+
+        # Verify that the indexes were optimized in the destination collection
+        dest_collection = self.dest_client[self.db_name]["test_optimize"]
+        dest_indexes = dest_collection.index_information()
+        self.assertIn("a_1_b_1_c_1_d_1", dest_indexes, "Compound index on 'a', 'b', 'c', 'd' was not migrated successfully.")
+        self.assertIn("b_1_d_1", dest_indexes, "Compound index on 'b' and 'd' was not migrated successfully.")
+        self.assertIn("d_1", dest_indexes, "Compound index on 'd' was not migrated successfully.")
+        self.assertNotIn("a_1_b_1_c_1", dest_indexes, "Compound index on 'a', 'b', 'c' was not optimized successfully.")
+        self.assertNotIn("b_1_c_1", dest_indexes, "Compound index on 'b' and 'c' was not optimized successfully.")
+        self.assertNotIn("c_1_d_1", dest_indexes, "Compound index on 'c' and 'd' was not optimized successfully.")
+
+    def test_optimize_compound_indexes_false(self):
+        """
+        Test that the migrate_schema method doesn't optimizes compound indexes.
+        """
+        # Create the source collection and index information
+        source_collection = self.source_client[self.db_name]["test_optimize"]
+        source_collection.create_index([("a", 1), ("b", 1), ("c", 1), ("d", 1)])
+        source_collection.create_index([("a", 1), ("b", 1), ("c", 1)])
+        source_collection.create_index([("b", 1), ("c", 1)])
+        source_collection.create_index([("c", 1), ("d", 1)])
+        source_collection.create_index([("b", 1), ("d", 1)])
+        source_collection.create_index([("d", 1)])
+
+        collection_config_sections = []
+        collection_config_sections.append(CollectionConfigSection([f'{self.db_name}.*'], [], False, False, False))
+        migrate_all_config = json.loads(self._generate_config(collection_config_sections))
+        collection_configs = JsonParser(migrate_all_config, self.source_client).parse_json()
+
+        # Create a SchemaMigration instance and call migrate_schema
+        schema_migration = SchemaMigration()
+        schema_migration.migrate_schema(self.source_client, self.dest_client, collection_configs)
+
+        # Verify that the indexes were not optimized in the destination collection
+        dest_collection = self.dest_client[self.db_name]["test_optimize"]
+        dest_indexes = dest_collection.index_information()
+        self.assertIn("a_1_b_1_c_1_d_1", dest_indexes, "Compound index on 'a', 'b', 'c', 'd' was not migrated successfully.")
+        self.assertIn("a_1_b_1_c_1", dest_indexes, "Compound index on 'a', 'b', 'c' was not migrated successfully.")
+        self.assertIn("b_1_c_1", dest_indexes, "Compound index on 'b' and 'c' was not migrated successfully.")
+        self.assertIn("c_1_d_1", dest_indexes, "Compound index on 'c' and 'd' was not migrated successfully.")
+        self.assertIn("b_1_d_1", dest_indexes, "Compound index on 'b' and 'd' was not migrated successfully.")
+        self.assertIn("d_1", dest_indexes, "Compound index on 'd' was not migrated successfully.")
+
+    def test_optimize_compound_indexes_filters_index_with_options(self):
+        """
+        Test that the migrate_schema method doesn't optimizes compound indexes when it has options.
+        """
+        # Create the source collection and index information
+        self.source_client[self.db_name].command({
+            'customAction': 'CreateCollection',
+            'collection': 'test_optimize',
+            'indexes': [{ 'key': { 'a': 1, 'b': 1, 'c': 1 }, 'name': 'a_1_b_1_c_1', 'unique': True }]
+            })
+        self.source_client[self.db_name]['test_optimize'].create_index([("a", 1), ("b", 1), ("c", 1), ("d", 1)])
+
+        collection_config_sections = []
+        collection_config_sections.append(CollectionConfigSection([f'{self.db_name}.*'], [], False, False, True))
+        migrate_all_config = json.loads(self._generate_config(collection_config_sections))
+        collection_configs = JsonParser(migrate_all_config, self.source_client).parse_json()
+
+        # Create a SchemaMigration instance and call migrate_schema
+        schema_migration = SchemaMigration()
+        schema_migration.migrate_schema(self.source_client, self.dest_client, collection_configs)
+
+        # Verify that the indexes were created in the destination collection
+        dest_collection = self.dest_client[self.db_name]["test_optimize"]
+        dest_indexes = dest_collection.index_information()
+        self.assertIn("a_1_b_1_c_1_d_1", dest_indexes, "Compound index on 'a', 'b', 'c', 'd' was not migrated successfully.")
+        self.assertIn("a_1_b_1_c_1", dest_indexes, "Compound index on 'a', 'b', 'c' was not migrated successfully.")
+        self.assertEqual(dest_indexes["a_1_b_1_c_1"]["unique"], True, "Unique option is not set.")
+
+    def test_optimize_compound_indexes_filters_index_with_other_indexes(self):
+        """
+        Test that the migrate_schema method doesn't optimizes compound indexes when it has options.
+        """
+        # Create the source collection and index information
+        self.source_client[self.db_name].command({
+            'customAction': 'CreateCollection',
+            'collection': 'test_optimize',
+            'indexes': [
+                { 'key': { 'a': 1, 'b': 1, 'c': 1 }, 'name': 'a_1_b_1_c_1', 'unique': True },
+                { 'key': { 'b': 1, 'c': 1 }, 'name': 'b_1_c_1', 'unique': True, 'partialFilterExpression': {"a": {"$gt": 0}}}
+                ]
+            })
+        source_collection = self.source_client[self.db_name]['test_optimize']
+        source_collection.create_index([("a", 1), ("b", 1), ("c", 1), ("d", 1)])
+        source_collection.create_index([("a", 1), ("b", 1)])
+        source_collection.create_index([("d", 1)], expireAfterSeconds=10)
+
+        collection_config_sections = []
+        collection_config_sections.append(CollectionConfigSection([f'{self.db_name}.*'], [], False, False, True))
+        migrate_all_config = json.loads(self._generate_config(collection_config_sections))
+        collection_configs = JsonParser(migrate_all_config, self.source_client).parse_json()
+
+        # Create a SchemaMigration instance and call migrate_schema
+        schema_migration = SchemaMigration()
+        schema_migration.migrate_schema(self.source_client, self.dest_client, collection_configs)
+
+        # Verify that the indexes in destination
+        dest_collection = self.dest_client[self.db_name]["test_optimize"]
+        dest_indexes = dest_collection.index_information()
+        self.assertIn("a_1_b_1_c_1_d_1", dest_indexes, "Compound index on 'a', 'b', 'c', 'd' was not migrated successfully.")
+        self.assertIn("a_1_b_1_c_1", dest_indexes, "Compound index on 'a', 'b', 'c' was not migrated successfully.")
+        self.assertEqual(dest_indexes["a_1_b_1_c_1"]["unique"], True, "Unique option is not set.")
+        self.assertIn("b_1_c_1", dest_indexes, "Compound index on 'b' and 'c' was not migrated successfully.")
+        self.assertTrue("partialFilterExpression" in dest_indexes["b_1_c_1"], "Partial filter expression is not set.")
+        self.assertIn("d_1", dest_indexes, "Compound index on 'd' was not migrated successfully.")
+        self.assertEqual(dest_indexes["d_1"]["expireAfterSeconds"], 10, "TTL index on 'd' field has incorrect expireAfterSeconds.")
+
     def test_ts_ttl_throws_error(self):
         """
         Test that the migrate_schema method throws an error when a TTL index is created on a _ts field.

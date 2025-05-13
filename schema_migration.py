@@ -66,7 +66,8 @@ class SchemaMigration:
                 index_options['name'] = source_index_name
                 index_list.append((index_keys, index_options))
 
-            # TODO: Optimize compound indexes
+            if collection_config.optimize_compound_indexes:
+                index_list = self._optimize_compound_indexes(index_list)
 
             for index_keys, index_options in index_list:
                 if self._is_ts_ttl_index(index_keys, index_options):
@@ -99,4 +100,65 @@ class SchemaMigration:
         """
         if 'expireAfterSeconds' in index_options and any('_ts' ==  index_key[0] for index_key in index_keys):
             return True
+        return False
+
+    def _optimize_compound_indexes(self, index_list: List[Tuple]) -> List[Tuple]:
+        """
+        Optimize compound indexes for the given collection configuration.
+        """
+        compound_indexes = []
+        not_compound_indexes = []
+        for index in index_list:
+            keys, options = index
+            if self._is_compound_index(index):
+                compound_indexes.append(index)
+            else:
+                not_compound_indexes.append(index)
+
+        # Sort compound indexes by the number of keys in descending order
+        compound_indexes.sort(key=lambda x: len(x[0]), reverse=True)
+
+        optimized_compound_indexes = []
+        for compound_index in compound_indexes:
+            keys, options = compound_index
+            is_redundant = False
+            for optimized_index in optimized_compound_indexes:
+                optimized_keys, optimized_options = optimized_index
+                if self._is_subarray(keys, optimized_keys):
+                    is_redundant = True
+                    break
+            if not is_redundant:
+                optimized_compound_indexes.append(compound_index)
+        return optimized_compound_indexes + not_compound_indexes
+
+    def _is_compound_index(self, index: Tuple) -> bool:
+        """
+        Check if the given index is a compound index.
+
+        :param index: The index to check.
+        :return: True if the index is compound, False otherwise.
+        """
+        not_compound_options = ['unique', 'sparse', 'expireAfterSeconds']
+        keys, options = index
+        if len(keys) > 1 and not any(opt in options for opt in not_compound_options):
+            return True
+        return False
+
+    def _is_subarray(self, sub: List, main: List) -> bool:
+        """
+        Check if the list `sub` is an subarray of the list `main`.
+
+        :param sub: The list to check as a subset.
+        :param main: The list to check against.
+        :return: True if `sub` is an subarray of `main`, False otherwise.
+        """
+        sub_len = len(sub)
+        main_len = len(main)
+
+        if sub_len > main_len:
+            return False
+
+        for i in range(main_len - sub_len + 1):
+            if main[i:i + sub_len] == sub:
+                return True
         return False
