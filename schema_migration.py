@@ -34,6 +34,8 @@ class SchemaMigration:
             db_name = collection_config.db_name
             collection_name = collection_config.collection_name
 
+            print(f"\nMigrating schema for collection: {db_name}.{collection_name}")
+
             source_db = source_client[db_name]
             source_collection = source_db[collection_name]
 
@@ -42,20 +44,29 @@ class SchemaMigration:
 
             # Check if the destination collection should be dropped
             if collection_config.drop_if_exists:
+                print("-- Running drop command on target collection")
                 dest_collection.drop()
 
             # Create the destination collection if it doesn't exist
             if not collection_name in dest_db.list_collection_names():
+                print("-- Creating target collection")
                 dest_db.create_collection(collection_name)
+            else:
+                print("-- Target collection already exists. Skipping creation.")
 
             # Check if shard key should be created
             if collection_config.migrate_shard_key:
                 source_shard_key = self._get_shard_key_ru(source_db, collection_config)
                 if (source_shard_key is not None):
+                    print(f"-- Migrating shard key - {source_shard_key}.")
                     dest_client.admin.command(
                         "shardCollection",
                         f"{db_name}.{collection_name}",
                         key=source_shard_key)
+                else:
+                    print(f"-- No shard key found for collection {collection_name}. Skipping shard key setup.")
+            else:
+                print("-- Skipping shard key migration for collection")
 
             # Migrate indexes
             index_list = []
@@ -67,11 +78,14 @@ class SchemaMigration:
                 index_list.append((index_keys, index_options))
 
             if collection_config.optimize_compound_indexes:
+                print("-- Optimizing compound indexes if available")
                 index_list = self._optimize_compound_indexes(index_list)
 
+            print("-- Migrating indexes for collection")
             for index_keys, index_options in index_list:
                 if self._is_ts_ttl_index(index_keys, index_options):
                     raise ValueError(f"Cannot migrate TTL index on _ts field for collection {collection_name}.")
+                print(f"---- Creating index: {index_keys} with options: {index_options}")
                 dest_collection.create_index(index_keys, **index_options)
 
     def _get_shard_key_ru(self, source_db: Database, collection_config: CollectionConfig):
