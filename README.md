@@ -36,7 +36,7 @@ Before running the assessment, ensure that the client machine meets the followin
                         "*"
                     ],
                     "exclude": [],
-                    "unsharded": "false",
+                    "migrate_shard_key": "false",
                     "drop_if_exists": "true",
                     "optimize_compound_indexes": "true"
                 }
@@ -55,7 +55,7 @@ Before running the assessment, ensure that the client machine meets the followin
                     "exclude": [
                         "db1.*"
                     ],
-                    "unsharded": "false",
+                    "migrate_shard_key": "false",
                     "drop_if_exists": "true",
                     "optimize_compound_indexes": "true"
                 }
@@ -76,7 +76,7 @@ Before running the assessment, ensure that the client machine meets the followin
                         "db1.coll1",
                         "db2.coll2"
                     ],
-                    "unsharded": "false",
+                    "migrate_shard_key": "false",
                     "drop_if_exists": "true",
                     "optimize_compound_indexes": "true"
                 }
@@ -94,7 +94,7 @@ Before running the assessment, ensure that the client machine meets the followin
                         "db1.coll1",
                         "db2.coll2"
                     ],
-                    "unsharded": "false",
+                    "migrate_shard_key": "false",
                     "drop_if_exists": "true",
                     "optimize_compound_indexes": "true"
                 }
@@ -115,7 +115,7 @@ Before running the assessment, ensure that the client machine meets the followin
                         "db1.coll1",
                         "db2.coll2"
                     ],
-                    "unsharded": "false",
+                    "migrate_shard_key": "false",
                     "drop_if_exists": "true",
                     "optimize_compound_indexes": "true"
                 },
@@ -124,7 +124,7 @@ Before running the assessment, ensure that the client machine meets the followin
                         "db1.coll1",
                         "db2.coll2"
                     ],
-                    "unsharded": "false",
+                    "migrate_shard_key": "true",
                     "drop_if_exists": "true",
                     "optimize_compound_indexes": "true"
                 }
