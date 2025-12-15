@@ -32,6 +32,7 @@ class JsonParser:
             migrate_shard_key = section.get("migrate_shard_key", "false").lower() == "true"
             drop_if_exists = section.get("drop_if_exists", "false").lower() == "true"
             optimize_compound_indexes = section.get("optimize_compound_indexes", "false").lower() == "true"
+            co_locate_with = section.get("co_locate_with")
 
             for collection in collections_to_migrate:
                 if collection in collection_configs:
@@ -43,7 +44,8 @@ class JsonParser:
                     collection_name=collection_name,
                     migrate_shard_key=migrate_shard_key,
                     drop_if_exists=drop_if_exists,
-                    optimize_compound_indexes=optimize_compound_indexes
+                    optimize_compound_indexes=optimize_compound_indexes,
+                    co_locate_with=co_locate_with
                 )
                 collection_configs[collection] = collection_config
         return collection_configs.values()

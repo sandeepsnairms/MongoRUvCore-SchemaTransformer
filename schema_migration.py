@@ -54,6 +54,11 @@ class SchemaMigration:
             else:
                 print("-- Target collection already exists. Skipping creation.")
 
+            # Handle colocation if specified
+            if collection_config.co_locate_with:
+                print(f"-- Setting up colocation with collection: {collection_config.co_locate_with}")
+                self._setup_colocation(dest_db, collection_name, collection_config.co_locate_with)
+
             # Check if shard key should be created
             if collection_config.migrate_shard_key:
                 source_shard_key = self._get_shard_key_ru(source_db, collection_config)
@@ -176,3 +181,33 @@ class SchemaMigration:
             if main[i:i + sub_len] == sub:
                 return True
         return False
+
+    def _setup_colocation(self, dest_db: Database, collection_name: str, reference_collection: str) -> None:
+        """
+        Set up colocation for a collection with a reference collection.
+
+        :param dest_db: The destination database object.
+        :param collection_name: The name of the collection to colocate.
+        :param reference_collection: The name of the reference collection to colocate with.
+        :raises ValueError: If the reference collection does not exist.
+        """
+        # Check if reference collection exists
+        if reference_collection not in dest_db.list_collection_names():
+            raise ValueError(
+                f"Reference collection '{reference_collection}' not found in database '{dest_db.name}'. "
+                f"Cannot colocate collection '{collection_name}'."
+            )
+
+        # Run collMod command to set up colocation
+        try:
+            dest_db.command({
+                "collMod": collection_name,
+                "colocation": {
+                    "collection": reference_collection
+                }
+            })
+            print(f"---- Successfully colocated '{collection_name}' with '{reference_collection}'")
+        except Exception as e:
+            raise ValueError(
+                f"Failed to colocate collection '{collection_name}' with '{reference_collection}': {str(e)}"
+            )

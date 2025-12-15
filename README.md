@@ -1,6 +1,6 @@
-# Schema Transformer: Migrating RU-based Azure Cosmos DB for MongoDB to vCore-based
+# Schema Transformer: Migrating RU-based Azure Cosmos DB for MongoDB to Azure DocumentDB
 
-Schema Transformer is a Python script designed to analyze Mongo RU Collection schemas and efficiently transform them into a vCore-optimized structure. This ensures seamless compatibility and enhances query performance.
+Schema Transformer is a Python script designed to analyze Mongo RU Collection schemas and efficiently transform them into a DocumentDB optimized structure. This ensures seamless compatibility and enhances query performance.
 
 With this tool, you can generate index and sharding recommendations tailored specifically to your workload, making your migration smoother and more efficient.
 
@@ -9,7 +9,7 @@ With this tool, you can generate index and sharding recommendations tailored spe
 The tool supports the following versions:
 
 - **Source:** Azure Cosmos DB for MongoDB RU-based (version 4.2 and above)
-- **Target:** Azure Cosmos DB for MongoDB vCore (all versions)
+- **Target:** Azure DocumentDB (all versions)
 
 ## How to Run the Script
 
@@ -17,8 +17,9 @@ The tool supports the following versions:
 
 Before running the assessment, ensure that the client machine meets the following requirements:
 
-- Access to both source and target MongoDB endpoints, either over a private or public network via the specified IP or hostname.
+- Access to both source MongoDB RU endpoint and target Azure DocumentDb endpoint, either over a private or public network via the specified IP or hostname.
 - Python (version 3.10 or above) must be installed.
+- PyMongo library must be installed (`pip install pymongo`).
 
 ### Steps to Run the Assessment
 
@@ -132,6 +133,27 @@ Before running the assessment, ensure that the client machine meets the followin
         }
         ```
 
+    6. To colocate collections with a reference collection
+    
+        ```json
+        {
+            "sections": [
+                {
+                    "include": [
+                        "db1.coll2",
+                        "db1.coll3"
+                    ],
+                    "migrate_shard_key": "false",
+                    "drop_if_exists": "true",
+                    "optimize_compound_indexes": "true",
+                    "co_locate_with": "coll1"
+                }
+            ]
+        }
+        ```
+        
+        **Note:** The collection specified in `co_locate_with` must already exist in the same database as the collection being processed. If the reference collection is not found, the script will fail with an error.
+
 4. Run the following command, providing the full path of the JSON file created in the previous step:
 
     ```cmd
@@ -148,3 +170,4 @@ This process will generate a vCore-optimized schema with index and sharding reco
 | **migrate_shard_key** | Determines whether the existing shard key definition should be migrated. If set to `True`, the shard key is retained; if `False`, the target collection remains unsharded. Collections that are originally unsharded in the source will remain unsharded in the target, regardless of this setting. **Default:** `False`. |
 | **drop_if_exists** | Specifies whether collections with the same name in the target should be dropped and recreated. If `True`, existing collections are removed before migration; if `False`, they remain unchanged. **Default:** `False`. |
 | **optimize_compound_indexes** | Controls whether compound indexes should be optimized. If `True`, the script identifies redundant indexes and excludes them from migration; if `False`, all indexes are migrated as-is. **Default:** `False`. |
+| **co_locate_with** | Specifies the name of a reference collection from the same database to colocate with. When specified, the target collection will be colocated with the reference collection for improved query performance. The reference collection must exist in the same database before colocation is applied, or an error will be thrown. This option is useful for optimizing queries that join or access related collections together. **Default:** `None`. |

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 @dataclass
 class CollectionConfig:
@@ -11,3 +12,4 @@ class CollectionConfig:
     migrate_shard_key: bool
     drop_if_exists: bool
     optimize_compound_indexes: bool = False
+    co_locate_with: Optional[str] = None
