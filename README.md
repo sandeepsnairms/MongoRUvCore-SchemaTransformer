@@ -1,6 +1,6 @@
-# Schema Transformer: Migrating RU-based Azure Cosmos DB for MongoDB to vCore-based
+# Schema Transformer: Migrating RU-based Azure Cosmos DB for MongoDB to Azure DocumentDB
 
-Schema Transformer is a Python script designed to analyze Mongo RU Collection schemas and efficiently transform them into a vCore-optimized structure. This ensures seamless compatibility and enhances query performance.
+Schema Transformer is a Python script designed to analyze Mongo RU Collection schemas and efficiently transform them into a DocumentDB optimized structure. This ensures seamless compatibility and enhances query performance.
 
 With this tool, you can generate index and sharding recommendations tailored specifically to your workload, making your migration smoother and more efficient.
 
@@ -9,7 +9,7 @@ With this tool, you can generate index and sharding recommendations tailored spe
 The tool supports the following versions:
 
 - **Source:** Azure Cosmos DB for MongoDB RU-based (version 4.2 and above)
-- **Target:** Azure Cosmos DB for MongoDB vCore (all versions)
+- **Target:** Azure DocumentDB (all versions)
 
 ## How to Run the Script
 
@@ -17,8 +17,9 @@ The tool supports the following versions:
 
 Before running the assessment, ensure that the client machine meets the following requirements:
 
-- Access to both source and target MongoDB endpoints, either over a private or public network via the specified IP or hostname.
+- Access to both source MongoDB RU endpoint and target Azure DocumentDb endpoint, either over a private or public network via the specified IP or hostname.
 - Python (version 3.10 or above) must be installed.
+- PyMongo library must be installed (`pip install pymongo`).
 
 ### Steps to Run the Assessment
 
