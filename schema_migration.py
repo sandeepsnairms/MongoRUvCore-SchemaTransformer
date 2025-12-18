@@ -58,6 +58,7 @@ class SchemaMigration:
             if collection_config.co_locate_with:
                 print(f"-- Setting up colocation with collection: {collection_config.co_locate_with}")
                 self._setup_colocation(dest_db, collection_name, collection_config.co_locate_with)
+                self._verify_colocation(dest_client, db_name, collection_name, collection_config.co_locate_with)
 
             # Check if shard key should be created
             if collection_config.migrate_shard_key:
@@ -208,6 +209,69 @@ class SchemaMigration:
             })
             print(f"---- Successfully colocated '{collection_name}' with '{reference_collection}'")
         except Exception as e:
+            print(f"---- Failed to colocate '{collection_name}' with '{reference_collection}': {str(e)}")
             raise ValueError(
                 f"Failed to colocate collection '{collection_name}' with '{reference_collection}': {str(e)}"
             )
+
+    def _verify_colocation(self, dest_client: MongoClient, db_name: str, collection_name: str, reference_collection: str) -> None:
+        """
+        Verify that a collection has been successfully colocated with a reference collection.
+        This method queries the config database to check if both collections are on the same shard.
+
+        :param dest_client: MongoDB client connected to the destination database.
+        :param db_name: The name of the database.
+        :param collection_name: The name of the collection to verify.
+        :param reference_collection: The name of the reference collection.
+        :raises ValueError: If the collections are not colocated as expected.
+        """
+        try:
+            # Query the config database to get shard information
+            config_db = dest_client['config']
+            
+            # Aggregate chunks to get collections grouped by shard
+            pipeline = [
+                {
+                    "$group": {
+                        "_id": "$shard",
+                        "shards": {"$addToSet": "$ns"}
+                    }
+                },
+                {
+                    "$sort": {"_id": 1}
+                }
+            ]
+            
+            results = list(config_db.chunks.aggregate(pipeline))
+            
+            # Format collection names
+            target_ns = f"{db_name}.{collection_name}"
+            reference_ns = f"{db_name}.{reference_collection}"
+            
+            # Find which shard each collection is on
+            target_shard = None
+            reference_shard = None
+            
+            for shard_info in results:
+                shards_list = shard_info.get('shards', [])
+                if target_ns in shards_list:
+                    target_shard = shard_info['_id']
+                if reference_ns in shards_list:
+                    reference_shard = shard_info['_id']
+            
+            # Verify colocation
+            if target_shard is None:
+                print(f"Collection '{target_ns}' not found in any shard.")
+            if reference_shard is None:
+                print(f"Reference collection '{reference_ns}' not found in any shard.")
+            
+            if target_shard == reference_shard:
+                print(f"---- ✓ Colocation verified: '{collection_name}' and '{reference_collection}' are on shard '{target_shard}'")
+            else:
+                print(
+                    f"Colocation verification failed: '{collection_name}' is on shard '{target_shard}' "
+                    f"but '{reference_collection}' is on shard '{reference_shard}'. They should be on the same shard."
+                )
+        except Exception as e:
+            print(f"Error verifying colocation: {str(e)}")
+            raise ValueError(f"Error verifying colocation: {str(e)}")
