@@ -12,10 +12,35 @@ class SchemaMigration:
     the destination collections are properly created, and shard keys and
     indexes are replicated as needed.
 
-    Methods:
-        migrate_schema(source_client, dest_client, collection_configs):
-            Migrates indexes and shard keys from source to destination collections.
+    Index migration can run in one of three modes:
+        - "complete"     : create all indexes (default).
+        - "preIngestion" : create only unique indexes; skip everything else.
+                           Run this before data ingestion to enforce uniqueness
+                           while data is being loaded.
+        - "postIngestion": create only non-unique indexes; skip drop/create,
+                           colocation and shard-key migration. Run this after
+                           data ingestion completes.
     """
+
+    def __init__(self, mode: str = "complete", blocking: bool = False):
+        """
+        :param mode: Index migration mode. One of "complete", "preIngestion",
+                     "postIngestion".
+        :param blocking: (postIngestion only) When True, indexes are built using
+                         the createIndexes command with blocking: true, which
+                         takes an exclusive lock on the collection for the
+                         duration of the build. Concurrent writes to the
+                         collection will FAIL while blocking builds are in
+                         progress and must be stopped by the caller.
+        """
+        if mode not in ("complete", "preIngestion", "postIngestion"):
+            raise ValueError(
+                f"Invalid mode '{mode}'. Must be one of: complete, preIngestion, postIngestion."
+            )
+        if blocking and mode != "postIngestion":
+            raise ValueError("blocking=True is only supported when mode='postIngestion'.")
+        self.mode = mode
+        self.blocking = blocking
 
     def migrate_schema(
             self,
@@ -30,6 +55,8 @@ class SchemaMigration:
         :param collection_configs: A list of CollectionConfig objects containing
                                    configuration details for each collection to migrate.
         """
+        skip_schema_ops = self.mode == "postIngestion"
+
         for collection_config in collection_configs:
             db_name = collection_config.db_name
             collection_name = collection_config.collection_name
@@ -42,37 +69,40 @@ class SchemaMigration:
             dest_db = dest_client[db_name]
             dest_collection = dest_db[collection_name]
 
-            # Check if the destination collection should be dropped
-            if collection_config.drop_if_exists:
-                print("-- Running drop command on target collection")
-                dest_collection.drop()
-
-            # Create the destination collection if it doesn't exist
-            if not collection_name in dest_db.list_collection_names():
-                print("-- Creating target collection")
-                dest_db.create_collection(collection_name)
+            if skip_schema_ops:
+                print("-- postIngestion mode: skipping drop/create, colocation and shard-key migration")
             else:
-                print("-- Target collection already exists. Skipping creation.")
+                # Check if the destination collection should be dropped
+                if collection_config.drop_if_exists:
+                    print("-- Running drop command on target collection")
+                    dest_collection.drop()
 
-            # Handle colocation if specified
-            if collection_config.co_locate_with:
-                print(f"-- Setting up colocation with collection: {collection_config.co_locate_with}")
-                self._setup_colocation(dest_db, collection_name, collection_config.co_locate_with)
-                self._verify_colocation(dest_client, db_name, collection_name, collection_config.co_locate_with)
-
-            # Check if shard key should be created
-            if collection_config.migrate_shard_key:
-                source_shard_key = self._get_shard_key_ru(source_db, collection_config)
-                if (source_shard_key is not None):
-                    print(f"-- Migrating shard key - {source_shard_key}.")
-                    dest_client.admin.command(
-                        "shardCollection",
-                        f"{db_name}.{collection_name}",
-                        key=source_shard_key)
+                # Create the destination collection if it doesn't exist
+                if not collection_name in dest_db.list_collection_names():
+                    print("-- Creating target collection")
+                    dest_db.create_collection(collection_name)
                 else:
-                    print(f"-- No shard key found for collection {collection_name}. Skipping shard key setup.")
-            else:
-                print("-- Skipping shard key migration for collection")
+                    print("-- Target collection already exists. Skipping creation.")
+
+                # Handle colocation if specified
+                if collection_config.co_locate_with:
+                    print(f"-- Setting up colocation with collection: {collection_config.co_locate_with}")
+                    self._setup_colocation(dest_db, collection_name, collection_config.co_locate_with)
+                    self._verify_colocation(dest_client, db_name, collection_name, collection_config.co_locate_with)
+
+                # Check if shard key should be created
+                if collection_config.migrate_shard_key:
+                    source_shard_key = self._get_shard_key_ru(source_db, collection_config)
+                    if (source_shard_key is not None):
+                        print(f"-- Migrating shard key - {source_shard_key}.")
+                        dest_client.admin.command(
+                            "shardCollection",
+                            f"{db_name}.{collection_name}",
+                            key=source_shard_key)
+                    else:
+                        print(f"-- No shard key found for collection {collection_name}. Skipping shard key setup.")
+                else:
+                    print("-- Skipping shard key migration for collection")
 
             # Migrate indexes
             index_list = []
@@ -87,12 +117,69 @@ class SchemaMigration:
                 print("-- Optimizing compound indexes if available")
                 index_list = self._optimize_compound_indexes(index_list)
 
-            print("-- Migrating indexes for collection")
+            # In postIngestion mode, skip indexes that already exist on destination
+            existing_index_names = set()
+            if self.mode == "postIngestion":
+                existing_index_names = set(dest_collection.index_information().keys())
+
+            print(f"-- Migrating indexes for collection (mode={self.mode}"
+                  f"{', blocking=True' if self.blocking else ''})")
             for index_keys, index_options in index_list:
                 if self._is_ts_ttl_index(index_keys, index_options):
                     raise ValueError(f"Cannot migrate TTL index on _ts field for collection {collection_name}.")
+
+                index_name = index_options.get('name', 'unnamed')
+                is_unique = bool(index_options.get('unique', False))
+
+                if self.mode == "preIngestion" and not is_unique:
+                    print(f"---- Skipping non-unique index '{index_name}' (preIngestion mode)")
+                    continue
+                if self.mode == "postIngestion" and is_unique:
+                    print(f"---- Skipping unique index '{index_name}' (postIngestion mode)")
+                    continue
+                if self.mode == "postIngestion" and index_name in existing_index_names:
+                    print(f"---- Skipping index '{index_name}' — already exists on destination")
+                    continue
+
                 print(f"---- Creating index: {index_keys} with options: {index_options}")
-                dest_collection.create_index(index_keys, **index_options)
+                if self.blocking and self.mode == "postIngestion":
+                    # Use the createIndexes command with blocking:true. This
+                    # holds an exclusive lock on the collection for the duration
+                    # of the build — any concurrent writes will fail. Callers
+                    # must stop writes to the target collection before enabling
+                    # this option.
+                    self._create_index_blocking(dest_db, collection_name, index_keys, index_options)
+                else:
+                    dest_collection.create_index(index_keys, **index_options)
+
+    def _create_index_blocking(
+            self,
+            dest_db: Database,
+            collection_name: str,
+            index_keys,
+            index_options: dict) -> None:
+        """
+        Build an index using the createIndexes command with blocking: true.
+
+        WARNING: This holds an exclusive lock on the collection for the entire
+        duration of the index build. Any writes to the collection during this
+        window will FAIL. The caller is responsible for stopping writes before
+        invoking this path.
+
+        `background` is stripped because it is mutually exclusive with the
+        blocking option on the server side.
+        """
+        index_options = dict(index_options)
+        index_options.pop('background', None)
+
+        index_doc = {"key": dict(index_keys)}
+        index_doc.update(index_options)
+
+        dest_db.command(
+            "createIndexes",
+            collection_name,
+            indexes=[index_doc],
+            blocking=True)
 
     def _get_shard_key_ru(self, source_db: Database, collection_config: CollectionConfig):
         """
