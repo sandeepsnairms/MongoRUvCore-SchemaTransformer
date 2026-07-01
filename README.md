@@ -160,7 +160,75 @@ Before running the assessment, ensure that the client machine meets the followin
     python main.py --config <path_to_your_json_file> --source-uri <source_mongo_connection_string> --dest-uri <destination_connection_string>
     ```
 
-This process will generate a vCore-optimized schema with index and sharding recommendations based on your workload.
+    **Optional: Control index migration strategy** using the `--mode` parameter:
+
+    ```cmd
+    # Pre-ingestion phase (create unique indexes only, before data migration)
+    python main.py --config <path_to_your_json_file> --source-uri <source> --dest-uri <dest> --mode preIngestion
+
+    # Post-ingestion phase (create non-unique indexes only, after data migration)
+    python main.py --config <path_to_your_json_file> --source-uri <source> --dest-uri <dest> --mode postIngestion
+
+    # Post-ingestion with blocking index builds
+    python main.py --config <path_to_your_json_file> --source-uri <source> --dest-uri <dest> --mode postIngestion --blocking
+    ```
+
+    The `--mode` flag controls which indexes are created:
+    - `complete` (default): Creates all indexes (both unique and non-unique).
+    - `preIngestion`: Creates only unique indexes. Run this **before** data ingestion so that uniqueness is enforced while data is being loaded.
+    - `postIngestion`: Creates only non-unique indexes. In this mode, drop/create, colocation and shard-key migration are **skipped**, and indexes that already exist on the destination are also skipped. Run this **after** data ingestion completes.
+
+This process will generate an Azure DocumentDB-optimized schema with index and sharding recommendations based on your workload.
+
+### Index Migration Modes
+
+The tool supports three index migration modes so you can split index creation across the data-migration lifecycle:
+
+#### 1. `complete` (default)
+Creates all indexes (unique and non-unique) in a single pass. Best when downtime is acceptable or the dataset is small.
+
+#### 2. `preIngestion`
+Creates only unique indexes before data is ingested. Non-unique indexes are skipped. Typical workflow:
+
+1. Run the tool with `--mode preIngestion` against the empty destination.
+2. Migrate data from source to destination using your data-migration tool of choice.
+3. Run the tool again with `--mode postIngestion` to create the remaining indexes.
+
+#### 3. `postIngestion`
+Creates only non-unique indexes after data is in place. Schema-level operations are skipped:
+- No collection drop / recreate
+- No collection creation
+- No colocation changes
+- No shard-key migration
+- Indexes that already exist on the destination are detected and skipped
+
+When using `postIngestion`, you can optionally pass `--blocking` to build indexes with the `createIndexes` command using `blocking: true`.
+
+> ### ⚠️ CRITICAL WARNING — `--blocking` STOPS WRITES
+>
+> **Blocking index builds take an EXCLUSIVE LOCK on the target collection for the entire duration of the build.**
+>
+> - **All writes to the target collections MUST be stopped BEFORE running with `--blocking`.**
+> - **Any write issued while a blocking build is in progress WILL FAIL.**
+> - Stop application traffic, ingestion / migration jobs, and any other writers to the destination collections before proceeding.
+> - `main.py` will show a warning banner and require you to type `yes` to confirm writes have been stopped before it starts.
+>
+> Only use `--blocking` when you have exclusive control over the destination collections and can accept a write outage for the length of the index build. If you cannot stop writes, omit `--blocking` and let the tool build indexes without the exclusive lock.
+
+Refer to the [Azure Cosmos DB documentation on prioritizing index builds](https://learn.microsoft.com/en-us/azure/documentdb/how-to-create-indexes#prioritizing-index-builds-over-new-write-operations-using-the-blocking-option) for details on the blocking option.
+
+**Example end-to-end workflow:**
+
+```bash
+# Step 1: pre-ingestion — create unique indexes only
+python main.py --config config.json --source-uri <source> --dest-uri <dest> --mode preIngestion
+
+# Step 2: migrate data (using your data migration tool)
+
+# Step 3: STOP all writes to the destination collections, then create the rest of the
+#         indexes with blocking builds
+python main.py --config config.json --source-uri <source> --dest-uri <dest> --mode postIngestion --blocking
+```
 
 
 ### Configuration Options
@@ -171,3 +239,13 @@ This process will generate a vCore-optimized schema with index and sharding reco
 | **drop_if_exists** | Specifies whether collections with the same name in the target should be dropped and recreated. If `True`, existing collections are removed before migration; if `False`, they remain unchanged. **Default:** `False`. |
 | **optimize_compound_indexes** | Controls whether compound indexes should be optimized. If `True`, the script identifies redundant indexes and excludes them from migration; if `False`, all indexes are migrated as-is. **Default:** `False`. |
 | **co_locate_with** | Specifies the name of a reference collection from the same database to colocate with. When specified, the target collection will be colocated with the reference collection for improved query performance. The reference collection must exist in the same database before colocation is applied, or an error will be thrown. This option is useful for optimizing queries that join or access related collections together. **Default:** `None`. |
+
+### Command Line Options
+
+| **Option** | **Required** | **Description** |
+|-----------|-------------|---------------|
+| **--config-file** | Yes | Path to the JSON configuration file. |
+| **--source-uri** | Yes | Source MongoDB (Cosmos DB for MongoDB RU) connection string. |
+| **--dest-uri** | Yes | Destination (Azure DocumentDB) connection string. |
+| **--mode** | No | Index migration mode: `complete` (default), `preIngestion`, or `postIngestion`. See the *Index Migration Modes* section. |
+| **--blocking** | No | (postIngestion only) Build indexes with `createIndexes` `blocking: true`. **Takes an exclusive lock — writes to the target collections must be stopped before use, or they will fail.** |
