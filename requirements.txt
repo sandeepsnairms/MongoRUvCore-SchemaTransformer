@@ -1,1 +1,2 @@
-pymongo==4.5.0
+pymongo>=4.7.0
+azure-identity>=1.15.0
