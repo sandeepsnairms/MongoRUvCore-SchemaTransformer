@@ -20,6 +20,7 @@ Before running the assessment, ensure that the client machine meets the followin
 - Access to both source MongoDB RU endpoint and target Azure DocumentDb endpoint, either over a private or public network via the specified IP or hostname.
 - Python (version 3.10 or above) must be installed.
 - PyMongo library must be installed (`pip install pymongo`).
+- To authenticate the destination with Microsoft Entra ID (recommended), also install `azure-identity` (`pip install azure-identity`). The script must be run from an environment whose identity has already been **enabled and authorized on the destination Azure DocumentDB** with the data-plane permissions required to create collections / indexes on the target. `DefaultAzureCredential` will pick up that identity at runtime.
 
 ### Steps to Run the Assessment
 
@@ -160,6 +161,12 @@ Before running the assessment, ensure that the client machine meets the followin
     python main.py --config <path_to_your_json_file> --source-uri <source_mongo_connection_string> --dest-uri <destination_connection_string>
     ```
 
+    **Optional: Authenticate the destination with Microsoft Entra ID** using `--dest-auth-entra-id`. When this flag is set, `--dest-uri` must be the Entra ID style connection string for the target cluster (no username / password embedded), and the script must be run from an environment whose identity has been enabled on the destination Azure DocumentDB. The tool will obtain an access token via `DefaultAzureCredential` for that identity:
+
+    ```cmd
+    python main.py --config <path_to_your_json_file> --source-uri <source_mongo_connection_string> --dest-uri <entra_id_connection_string> --dest-auth-entra-id
+    ```
+
     **Optional: Control index migration strategy** using the `--mode` parameter:
 
     ```cmd
@@ -249,3 +256,4 @@ python main.py --config config.json --source-uri <source> --dest-uri <dest> --mo
 | **--dest-uri** | Yes | Destination (Azure DocumentDB) connection string. |
 | **--mode** | No | Index migration mode: `complete` (default), `preIngestion`, or `postIngestion`. See the *Index Migration Modes* section. |
 | **--blocking** | No | (postIngestion only) Build indexes with `createIndexes` `blocking: true`. **Takes an exclusive lock — writes to the target collections must be stopped before use, or they will fail.** |
+| **--dest-auth-entra-id** | No | Authenticate to the destination Azure DocumentDB using Microsoft Entra ID via `DefaultAzureCredential`. The script must be run from an environment whose identity has been enabled and authorized on the destination Azure DocumentDB. When set, `--dest-uri` must be the Entra ID style connection string for the target cluster (no username / password embedded). |

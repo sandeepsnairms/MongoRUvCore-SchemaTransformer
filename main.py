@@ -4,6 +4,7 @@ import sys
 from pymongo import MongoClient
 from json_parser import JsonParser
 from schema_migration import SchemaMigration
+from entra_auth import create_entra_id_mongo_client
 
 if __name__ == "__main__":
     # Take user input for URIs and configuration JSON file
@@ -33,6 +34,18 @@ if __name__ == "__main__":
             "stopped before running."
         ),
     )
+    parser.add_argument(
+        "--dest-auth-entra-id",
+        action="store_true",
+        help=(
+            "Authenticate to the destination Azure DocumentDB using "
+            "Microsoft Entra ID via DefaultAzureCredential. The script must "
+            "be run from an environment whose identity has been enabled and "
+            "authorized on the destination Azure DocumentDB. When set, "
+            "--dest-uri must be the Entra ID style connection string for the "
+            "target cluster (no username / password embedded)."
+        ),
+    )
     args = parser.parse_args()
 
     source_uri = args.source_uri
@@ -40,6 +53,7 @@ if __name__ == "__main__":
     config_file_path = args.config_file
     mode = args.mode
     blocking = args.blocking
+    dest_auth_entra_id = args.dest_auth_entra_id
 
     if blocking and mode != "postIngestion":
         parser.error("--blocking can only be used with --mode postIngestion")
@@ -82,7 +96,16 @@ if __name__ == "__main__":
 
     # Connect to the source and destination MongoDB instances
     source_client = MongoClient(source_uri)
-    dest_client = MongoClient(dest_uri)
+    if dest_auth_entra_id:
+        print("Destination auth: Microsoft Entra ID (DefaultAzureCredential).")
+        dest_client = create_entra_id_mongo_client(dest_uri)
+    else:
+        print(
+            "WARNING: Destination auth is using the connection string as-is. "
+            "For production, prefer --dest-auth-entra-id to authenticate with "
+            "the signed-in Microsoft Entra ID identity."
+        )
+        dest_client = MongoClient(dest_uri)
 
     # Load the configuration from the JSON file
     with open(config_file_path, 'r', encoding='utf-8') as config_file:
