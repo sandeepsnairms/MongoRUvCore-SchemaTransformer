@@ -152,6 +152,10 @@ class SchemaMigration:
                 else:
                     dest_collection.create_index(index_keys, **index_options)
 
+            if self.mode != "postIngestion" and collection_config.move_to:
+                print(f"-- Moving collection to shard: {collection_config.move_to}")
+                self._move_collection(dest_client, db_name, collection_name, collection_config.move_to)
+
     def _create_index_blocking(
             self,
             dest_db: Database,
@@ -180,6 +184,43 @@ class SchemaMigration:
             collection_name,
             indexes=[index_doc],
             blocking=True)
+
+    def _move_collection(
+            self,
+            dest_client: MongoClient,
+            db_name: str,
+            collection_name: str,
+            to_shard: str) -> None:
+        """
+        Move an existing collection to a specific shard on the destination cluster.
+
+        This uses the moveCollection admin command after the collection has been
+        created and its schema has been applied.
+        """
+        namespace = f"{db_name}.{collection_name}"
+        try:
+            dest_client.admin.command({
+                "moveCollection": namespace,
+                "toShard": to_shard
+            })
+            print(f"---- Successfully moved '{namespace}' to shard '{to_shard}'")
+        except Exception as exc:
+            error_message = str(exc).lower()
+            # Treat "collection is already on the requested shard" as a no-op. The
+            # server reports this in a few different ways depending on version:
+            #   - "already ... shard"
+            #   - "cannot move shard to the same node" (BadValue)
+            already_placed = (
+                ("already" in error_message and "shard" in error_message)
+                or "same node" in error_message
+                or "same shard" in error_message
+            )
+            if already_placed:
+                print(f"---- Collection '{namespace}' already resides on shard '{to_shard}'. Skipping move.")
+                return
+            raise ValueError(
+                f"Failed to move collection '{namespace}' to shard '{to_shard}': {str(exc)}"
+            ) from exc
 
     def _get_shard_key_ru(self, source_db: Database, collection_config: CollectionConfig):
         """

@@ -33,6 +33,10 @@ class JsonParser:
             drop_if_exists = section.get("drop_if_exists", "false").lower() == "true"
             optimize_compound_indexes = section.get("optimize_compound_indexes", "false").lower() == "true"
             co_locate_with = section.get("co_locate_with")
+            move_to = section.get("move_to")
+
+            if move_to and migrate_shard_key:
+                raise ValueError("move_to cannot be used when migrate_shard_key is true")
 
             for collection in collections_to_migrate:
                 if collection in collection_configs:
@@ -45,7 +49,8 @@ class JsonParser:
                     migrate_shard_key=migrate_shard_key,
                     drop_if_exists=drop_if_exists,
                     optimize_compound_indexes=optimize_compound_indexes,
-                    co_locate_with=co_locate_with
+                    co_locate_with=co_locate_with,
+                    move_to=move_to
                 )
                 collection_configs[collection] = collection_config
         return collection_configs.values()
