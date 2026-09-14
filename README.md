@@ -26,7 +26,14 @@ Before running the assessment, ensure that the client machine meets the followin
 
 1. Download the latest [release](https://github.com/AzureCosmosDB/MongoRUvCore-SchemaTransformer/releases) and unzip it.
 2. Open the command prompt and navigate to the extracted directory.
-3. Create a JSON file to define the collections to be migrated. Each section in the configuration will define the schema migration options for a set of collections (you can specify `*` to refer to all collections in an account and `db.*` to refer all collections within a database). Refer the next section for more details on configuration options. Here are some examples -
+3. Create a JSON file to define the collections to be migrated. Each section in the configuration will define the schema migration options for a set of collections (you can specify `*` to refer to all collections in an account and `db.*` to refer all collections within a database). Refer the next section for more details on configuration options. Before choosing the settings, consider the following schema-design guidance:
+
+    - **Prefer unsharded collections when possible.** Azure DocumentDB generally provides the best performance for unsharded collections. Unlike Azure Cosmos DB for MongoDB RU-based accounts, where customers may shard to accommodate the 20-GB logical partition limit, Azure DocumentDB nodes can provide up to 32 TB of storage. Sharding is therefore optional for many migrated collections.
+    - **Shard only when the workload requires it.** Consider sharding when a collection cannot fit on one node or when its combined read and write throughput cannot be served efficiently by a single shard. Avoid carrying the source shard key forward automatically: collections sharded on `_id`, in particular, can perform worse than unsharded collections. Keep `migrate_shard_key` set to `false` unless the target workload needs sharding.
+    - **Balance multi-node deployments.** Use `move_to` to distribute unsharded collections across destination shards so that storage and read/write throughput are balanced and no node becomes a hotspot.
+    - **Keep related collections together.** Collections referenced together by operations such as `$lookup`, `$graphLookup`, or `$unionWith` should remain on the same destination shard. Use `co_locate_with` to place a collection with its reference collection instead of distributing those collections independently.
+
+    Here are some configuration examples:
 
     1. To specify all collections present in the account
     
